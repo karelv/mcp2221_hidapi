@@ -19,9 +19,12 @@ STATIC_LIB_FILE:=lib$(STATIC_LIB_NAME).a
 SHARED_LIB_FILE:=lib$(SHARED_LIB_NAME).so
 
 ifeq ($(detected_OS),Windows)
+MACHINE:=windows
 DEP_LIBS:=-lhidapi
-DEP_LIB_PATH:=-Llibs
+DEP_LIB_PATH:=-Llibs/$(MACHINE)
 SHARED_LIB_FILE:=$(SHARED_LIB_NAME).dll
+else
+MACHINE:=$(shell uname -m)
 endif
 
 all: test $(STATIC_LIB_FILE) $(SHARED_LIB_FILE)
@@ -34,24 +37,27 @@ mcp2221_hidapi.o: mcp2221_hidapi.c
 
 $(SHARED_LIB_FILE): mcp2221_hidapi.o
 	gcc -s -static-libgcc -static-libstdc++ -shared $^ -o $@ $(DEP_LIBS) $(DEP_LIB_PATH) -Wl,-rpath=libs
-	@cp -fv $@ libs
+	@mkdir -p libs/$(MACHINE)
+	@cp -fv $@ libs/$(MACHINE)
 
 $(STATIC_LIB_FILE): mcp2221_hidapi.o
 	ar rcu $@ $<
+	@mkdir -p libs/$(MACHINE)
+	@cp -fv $@ libs/$(MACHINE)
 
 
 
 test: test.o mcp2221_hidapi.o
 	gcc -o $@ $^ $(DEP_LIBS) $(DEP_LIB_PATH)
-	@cp -v libs/hidapi.dll .
+	@cp -v libs/windows/hidapi.dll .
 
 test_static: test.o $(STATIC_LIB_FILE)
 	gcc -o $@ $< -l$(STATIC_LIB_NAME) -L. $(DEP_LIBS) $(DEP_LIB_PATH)
-	@cp -v libs/hidapi.dll .
+	@cp -v libs/windows/hidapi.dll .
 
 test_shared: test.o $(SHARED_LIB_FILE)
 	gcc -o $@ $< -l$(SHARED_LIB_NAME) -Wl,-rpath=libs -Llibs $(DEP_LIBS) $(DEP_LIB_PATH)
-	@cp -v libs/hidapi.dll .
+	@cp -v libs/windows/hidapi.dll .
 
 
 clean:
