@@ -8,9 +8,12 @@
 
 struct MCP2221_t
 {
-  hid_device* hid_;
-  uint32_t i2c_frequency_hz_;
+  uint8_t in_report_[64];
+  uint8_t out_report_buffer_[65];
   uint8_t use_pec_;
+  uint32_t i2c_frequency_hz_;
+  hid_device* hid_;
+  uint8_t *out_report_;
 };
 
 
@@ -20,6 +23,16 @@ struct MCP2221_t *mcp2221_hidapi_init_by_index(uint8_t index);
 struct MCP2221_t *mcp2221_hidapi_init(void);
 void mcp2221_hidapi_tear_down(struct MCP2221_t *handle);
 int16_t mcp2221_hidapi_reset(struct MCP2221_t *handle);
+
+int16_t mcp2221_hidapi_clear_out_report(struct MCP2221_t *handle);
+int16_t mcp2221_hidapi_clear_in_report(struct MCP2221_t *handle);
+int16_t mcp2221_hidapi_clear_reports(struct MCP2221_t *handle);
+int16_t mcp2221_hidapi_sent_report(struct MCP2221_t *handle);
+int16_t mcp2221_hidapi_receive_report(struct MCP2221_t *handle);
+
+int16_t mcp2221_hidapi_read_factory_serial_number(struct MCP2221_t *handle, char *serial, uint8_t max_size);
+int16_t mcp2221_hidapi_read_usb_serial_number(struct MCP2221_t *handle, char *serial, uint8_t max_size);
+
 
 int16_t mcp2221_hidapi_i2c_smb(struct MCP2221_t *handle, uint8_t use_pec);
 

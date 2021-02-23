@@ -61,10 +61,13 @@ mcp2221_hidapi_init_(int16_t index, const char *path,  int vid, int pid)
           free(handle);
           return NULL;
         }
-        mcp2221_hidapi_i2c_cancel(handle);
-        mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
-        mcp2221_hidapi_i2c_cancel(handle);
         mcp2221_hidapi_i2c_test_lines(handle);
+        if (handle->in_report_[8] != 0)
+        {
+          mcp2221_hidapi_reset(handle);
+          return NULL;
+        }
+        mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
         return handle;
       }
     }
@@ -90,10 +93,13 @@ mcp2221_hidapi_init_(int16_t index, const char *path,  int vid, int pid)
         return NULL;
       }
 
-      mcp2221_hidapi_i2c_cancel(handle);
-      mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
-      mcp2221_hidapi_i2c_cancel(handle);
       mcp2221_hidapi_i2c_test_lines(handle);
+      if (handle->in_report_[8] != 0)
+      {
+        mcp2221_hidapi_reset(handle);
+        return NULL;
+      }
+      mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
       return handle;        
     }
   }
@@ -144,7 +150,7 @@ mcp2221_hidapi_tear_down(struct MCP2221_t *handle)
 int16_t
 mcp2221_hidapi_i2c_smb(struct MCP2221_t *handle, uint8_t use_pec)
 {
- if (handle == NULL) 
+ if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
@@ -157,26 +163,22 @@ mcp2221_hidapi_i2c_smb(struct MCP2221_t *handle, uint8_t use_pec)
 int16_t
 mcp2221_hidapi_i2c_test_lines(struct MCP2221_t *handle)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0x10; // CMD Status / Set param
+  mcp2221_hidapi_sent_report(handle);
+  mcp2221_hidapi_receive_report(handle);
 
-  buf[0+1] = 0x10; // CMD Status / Set param
-  hid_write(handle->hid_, buf, 65);
-
-  memset(buf, 0, sizeof(buf));
-  hid_read(handle->hid_, buf, 65);
-
-  if (buf[23] != 1)
+  if (handle->in_report_[23] != 1)
   {
     printf("mcp2221_hidapi_i2c_test_lines: SCL is stuck to low!\n");
     return -1;
   }
-  if (buf[22] != 1)
+  if (handle->in_report_[22] != 1)
   {
     printf("mcp2221_hidapi_i2c_test_lines: SDA is stuck to low!\n");
     return -2;
@@ -189,23 +191,19 @@ mcp2221_hidapi_i2c_test_lines(struct MCP2221_t *handle)
 int16_t
 mcp2221_hidapi_i2c_set_frequency(struct MCP2221_t *handle, uint32_t frequency_hz)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
-
-  buf[0+1] = 0x10; // CMD Status / Set param
-  buf[1+1] = 0x00; // don't care
-  buf[2+1] = 0x00; // 0x10 ==> cancel current transaction
-  buf[3+1] = 0x20; // when 0x20 ==> next is clock divider
-  buf[4+1] = (12000000 / frequency_hz) - 3; // clock speed.
-  hid_write(handle->hid_, buf, 65);
-
-  memset(buf, 0, sizeof(buf));
-  hid_read(handle->hid_, buf, 65);
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0x10; // CMD Status / Set param
+  handle->out_report_[1] = 0x00; // don't care
+  handle->out_report_[2] = 0x00; // 0x10 ==> cancel current transaction
+  handle->out_report_[3] = 0x20; // when 0x20 ==> next is clock divider
+  handle->out_report_[4] = (12000000 / frequency_hz) - 3; // clock speed.
+  mcp2221_hidapi_sent_report(handle);
+  mcp2221_hidapi_receive_report(handle);
 
   handle->i2c_frequency_hz_ = frequency_hz;
 
@@ -216,50 +214,42 @@ mcp2221_hidapi_i2c_set_frequency(struct MCP2221_t *handle, uint32_t frequency_hz
 int16_t
 mcp2221_hidapi_i2c_cancel(struct MCP2221_t *handle)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
-  buf[0+1] = 0x10; // CMD Status / Set param
-  buf[1+1] = 0x00; // don't care
-  buf[2+1] = 0x10; // 0x10 ==> cancel current transaction
-  hid_write(handle->hid_, buf, 65);
-
-  memset(buf, 0, sizeof(buf));
-  int n = hid_read(handle->hid_, buf, 65);
-
-  if (n != 64)
-  {
-    printf("mcp2221_hidapi_i2c_cancel: ERROR, reading result\n");
-    return -1;
-  }
-
-  return 0;
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0x10; // CMD Status / Set param
+  handle->out_report_[1] = 0x00; // don't care
+  handle->out_report_[2] = 0x10; // 0x10 ==> cancel current transaction
+  handle->out_report_[3] = 0x20; // when 0x20 ==> next is clock divider
+  handle->out_report_[4] = (12000000 / handle->i2c_frequency_hz_) - 3; // clock speed.
+  mcp2221_hidapi_sent_report(handle);
+  return mcp2221_hidapi_receive_report(handle);
 }
 
 
 int16_t
 mcp2221_hidapi_reset(struct MCP2221_t *handle)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
 
-  buf[0+1] = 0x70;
-  buf[1+1] = 0xAB;
-  buf[2+1] = 0xCD;
-  buf[3+1] = 0xEF;
-  hid_write(handle->hid_, buf, 65);
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0x70;
+  handle->out_report_[1] = 0xAB;
+  handle->out_report_[2] = 0xCD;
+  handle->out_report_[3] = 0xEF;
+  mcp2221_hidapi_sent_report(handle);
 
   usleep(1000000);
   // no answer is expected!
+
+  mcp2221_hidapi_tear_down(handle); // re-enumeration is needed!
 
   return 0;
 }
@@ -268,49 +258,41 @@ mcp2221_hidapi_reset(struct MCP2221_t *handle)
 int16_t
 mcp2221_hidapi_i2c_state_check(struct MCP2221_t *handle)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
-  buf[0+1] = 0x10; // CMD Status / Set param
-  hid_write(handle->hid_, buf, 65);
 
-  memset(buf, 0, sizeof(buf));
-  hid_read(handle->hid_, buf, 65);
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0x10; // CMD Status / Set param
+  mcp2221_hidapi_sent_report(handle);
+  mcp2221_hidapi_receive_report(handle);
 
-  return buf[8];
+  return handle->in_report_[8];
 }
 
 
 int16_t
 mcp2221_hidapi_i2c_write_(struct MCP2221_t *handle, uint8_t cmd, uint8_t slave_address, const uint8_t *data, uint16_t size)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
-  buf[0+1] = cmd;
-  buf[1+1] = size & 0x00FF;
-  buf[2+1] = (size>>8) & 0x00FF;
-  buf[3+1] = (slave_address << 1);
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = cmd;
+  handle->out_report_[1] = size & 0x00FF;
+  handle->out_report_[2] = (size>>8) & 0x00FF;
+  handle->out_report_[3] = (slave_address << 1);
   if (size > 60) size = 60;
   for (uint8_t i=0; i<size; i++)
   {
-    buf[4+1+i] = data[i];
+    handle->out_report_[4+i] = data[i];
   }
-
-  hid_write(handle->hid_, buf, 65);
-
-  memset(buf, 0, sizeof(buf));
-  hid_read(handle->hid_, buf, 65);
-
-  return 0;
+  mcp2221_hidapi_sent_report(handle);
+  return mcp2221_hidapi_receive_report(handle);
 }
 
 
@@ -338,23 +320,20 @@ mcp2221_hidapi_i2c_write_no_stop(struct MCP2221_t *handle, uint8_t slave_address
 int16_t
 mcp2221_hidapi_i2c_read_(struct MCP2221_t *handle, uint8_t cmd, uint8_t slave_address, uint8_t *data, uint16_t size)
 {
-  if (handle == NULL) 
+  if (handle == NULL)
   {
     printf("%s: ERROR: No handle\n", __func__);
     return -9999;
   }
-  uint8_t buf[65];
-  memset(buf, 0, sizeof(buf));
-  buf[0+1] = cmd;
-  buf[1+1] = size & 0x00FF;
-  buf[2+1] = (size>>8) & 0x00FF;
-  buf[3+1] = (slave_address << 1);
-  hid_write(handle->hid_, buf, 65);
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = cmd;
+  handle->out_report_[1] = size & 0x00FF;
+  handle->out_report_[2] = (size>>8) & 0x00FF;
+  handle->out_report_[3] = (slave_address << 1) | 0x01;
+  mcp2221_hidapi_sent_report(handle);
+  mcp2221_hidapi_receive_report(handle);
 
-  memset(buf, 0, sizeof(buf));
-  hid_read(handle->hid_, buf, 65);
-
-  if (buf[1] != 0x00)
+  if (handle->in_report_[1] != 0x00)
   { // no ACK => cancel current operation...
     mcp2221_hidapi_i2c_cancel(handle);
     return -1;
@@ -371,20 +350,18 @@ mcp2221_hidapi_i2c_read_(struct MCP2221_t *handle, uint8_t cmd, uint8_t slave_ad
       usleep(1500); // wait 1.5 ms
     }
 
-    memset(buf, 0, sizeof(buf));
-    buf[0+1] = 0x40;
-    hid_write(handle->hid_, buf, 65);
+    mcp2221_hidapi_clear_reports(handle);
+    handle->out_report_[0] = 0x40;
+    mcp2221_hidapi_sent_report(handle);
+    mcp2221_hidapi_receive_report(handle);
 
-    memset(buf, 0, sizeof(buf));
-    hid_read(handle->hid_, buf, 65);
-
-    if (buf[1] != 0)
+    if (handle->in_report_[1] != 0)
     {
       mcp2221_hidapi_i2c_cancel(handle);
       return -1;
     }
 
-    if (buf[3] != chunk_size) // more than 60 bytes can be read in sequence...
+    if (handle->in_report_[3] != chunk_size) // more than 60 bytes can be read in sequence...
     {
       mcp2221_hidapi_i2c_cancel(handle);
       return -2;
@@ -392,7 +369,7 @@ mcp2221_hidapi_i2c_read_(struct MCP2221_t *handle, uint8_t cmd, uint8_t slave_ad
 
     for (int i=0; i<chunk_size; i++)
     {
-      data[(chunk_i * 60) + i] = buf[i+4];
+      data[(chunk_i * 60) + i] = handle->in_report_[i+4];
     }
   }
   return 0;
@@ -418,7 +395,15 @@ int16_t
 mcp2221_hidapi_i2c_slave_available(struct MCP2221_t *handle, uint8_t slave_address)
 {
   uint8_t data[2];
-  return mcp2221_hidapi_i2c_read(handle, slave_address, data, 1);
+  mcp2221_hidapi_i2c_write(handle, slave_address, data, 0);
+  mcp2221_hidapi_i2c_test_lines(handle);
+  mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
+  if (handle->in_report_[3] == 0x21)
+  {
+    mcp2221_hidapi_i2c_cancel(handle);
+    return -1; // not available
+  } 
+  return 0; // available!
 }
 
 
@@ -518,4 +503,123 @@ mcp2221_hidapi_i2c_read_word(struct MCP2221_t *handle, uint8_t slave_address, ui
   // swap bytes: 
   *data = (256 * data8[0] + data8[1]);
   return r;
+}
+
+
+int16_t
+mcp2221_hidapi_clear_out_report(struct MCP2221_t *handle)
+{
+  if (handle == NULL)
+  {
+    printf("%s: ERROR: No handle\n", __func__);
+    return -9999;
+  }
+  memset(handle->out_report_buffer_, 0, sizeof(handle->out_report_buffer_));
+  handle->out_report_ = &handle->out_report_buffer_[1];
+  return 0;
+}
+
+
+int16_t
+mcp2221_hidapi_clear_in_report(struct MCP2221_t *handle)
+{
+  if (handle == NULL)
+  {
+    printf("%s: ERROR: No handle\n", __func__);
+    return -9999;
+  }
+  memset(handle->in_report_, 0, sizeof(handle->in_report_));
+  return 0;
+}
+
+
+int16_t
+mcp2221_hidapi_clear_reports(struct MCP2221_t *handle)
+{
+  int16_t r = mcp2221_hidapi_clear_out_report(handle);
+  if (r != 0) return r;
+  r = mcp2221_hidapi_clear_in_report(handle);
+  return r;
+}
+
+
+int16_t
+mcp2221_hidapi_sent_report(struct MCP2221_t *handle)
+{
+  int len = hid_write(handle->hid_, handle->out_report_buffer_, 65);
+  if (len != 65)
+  {
+    printf("%s: ERROR, sending result\n", __func__);
+    return -1;
+  }
+  return 0;
+}
+
+
+int16_t
+mcp2221_hidapi_receive_report(struct MCP2221_t *handle)
+{
+  int len = hid_read(handle->hid_, handle->in_report_, 64);
+  if (len != 64)
+  {
+    printf("%s: ERROR, reading result\n", __func__);
+    return -1;
+  }
+  return 0;
+}
+
+
+int16_t
+mcp2221_hidapi_read_factory_serial_number(struct MCP2221_t *handle, char *serial, uint8_t max_size)
+{
+  if (handle == NULL)
+  {
+    printf("%s: ERROR: No handle\n", __func__);
+    return -9999;
+  }
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0xB0; // CMD Status / Set param
+  handle->out_report_[1] = 0x05;
+  mcp2221_hidapi_sent_report(handle);
+  mcp2221_hidapi_receive_report(handle);
+
+  int len = handle->in_report_[2];
+  for (int i=0; i<len; i++)
+  {
+    if (i >= max_size)
+    {
+      return -1;
+    }
+    serial[i] = handle->in_report_[4+2*i];
+  }
+
+  return 0;
+}
+
+
+int16_t
+mcp2221_hidapi_read_usb_serial_number(struct MCP2221_t *handle, char *serial, uint8_t max_size)
+{
+  if (handle == NULL)
+  {
+    printf("%s: ERROR: No handle\n", __func__);
+    return -9999;
+  }
+  mcp2221_hidapi_clear_reports(handle);
+  handle->out_report_[0] = 0xB0; // CMD Status / Set param
+  handle->out_report_[1] = 0x04;
+  mcp2221_hidapi_sent_report(handle);
+  mcp2221_hidapi_receive_report(handle);
+
+  int len = handle->in_report_[2];
+  for (int i=0; i<len; i++)
+  {
+    if (i >= max_size)
+    {
+      return -1;
+    }
+    serial[i] = handle->in_report_[4+2*i];
+  }
+
+  return 0;
 }
