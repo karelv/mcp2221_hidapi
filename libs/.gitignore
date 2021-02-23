@@ -1,3 +1,4 @@
 !hidapi.dll
 !mcp2221_hidapi.dll
+!*.a
 
