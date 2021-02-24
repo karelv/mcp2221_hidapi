@@ -4,6 +4,44 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include <sys/time.h>
+
+
+static uint64_t
+get_time_in_us(void)
+{
+  struct timeval tv;
+  gettimeofday(&tv,NULL);
+  return (uint64_t)1000000*tv.tv_sec + tv.tv_usec;
+}
+
+
+void
+mcp2221_hidapi_print_in_report(struct MCP2221_t *handle)
+{
+  printf ("\nin_report_:\n");
+  for (int i = 0; i < 16; i++)
+  {
+    printf ("%02X, ", handle->in_report_[i]);
+  }
+  printf("\n");
+  for (int i = 16; i < 32; i++)
+  {
+    printf ("%02X, ", handle->in_report_[i]);
+  }
+  printf("\n");
+  for (int i = 32; i < 48; i++)
+  {
+    printf ("%02X, ", handle->in_report_[i]);
+  }
+  printf("\n");
+  for (int i = 48; i < 64; i++)
+  {
+    printf ("%02X, ", handle->in_report_[i]);
+  }
+  printf("\n");
+
+}
 
 
 struct MCP2221_t *
@@ -61,13 +99,15 @@ mcp2221_hidapi_init_(int16_t index, const char *path,  int vid, int pid)
           free(handle);
           return NULL;
         }
+        mcp2221_hidapi_i2c_cancel(handle);
+        mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
         mcp2221_hidapi_i2c_test_lines(handle);
         if (handle->in_report_[8] != 0)
         {
+          printf ("mcp2221_hidapi_init: ERROR: internal I2C state error => reset!\n");
           mcp2221_hidapi_reset(handle);
           return NULL;
         }
-        mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
         return handle;
       }
     }
@@ -221,12 +261,21 @@ mcp2221_hidapi_i2c_cancel(struct MCP2221_t *handle)
   }
   mcp2221_hidapi_clear_reports(handle);
   handle->out_report_[0] = 0x10; // CMD Status / Set param
-  handle->out_report_[1] = 0x00; // don't care
-  handle->out_report_[2] = 0x10; // 0x10 ==> cancel current transaction
-  handle->out_report_[3] = 0x20; // when 0x20 ==> next is clock divider
-  handle->out_report_[4] = (12000000 / handle->i2c_frequency_hz_) - 3; // clock speed.
   mcp2221_hidapi_sent_report(handle);
-  return mcp2221_hidapi_receive_report(handle);
+  mcp2221_hidapi_receive_report(handle);
+
+  if (handle->in_report_[8] != 0)
+  {
+    mcp2221_hidapi_clear_reports(handle);
+    handle->out_report_[0] = 0x10; // CMD Status / Set param
+    handle->out_report_[1] = 0x00; // don't care
+    handle->out_report_[2] = 0x10; // 0x10 ==> cancel current transaction
+    handle->out_report_[3] = 0x20; // when 0x20 ==> next is clock divider
+    handle->out_report_[4] = (12000000 / handle->i2c_frequency_hz_) - 3; // clock speed.
+    mcp2221_hidapi_sent_report(handle);
+    return mcp2221_hidapi_receive_report(handle);
+  }
+  return 0;
 }
 
 
@@ -345,10 +394,17 @@ mcp2221_hidapi_i2c_read_(struct MCP2221_t *handle, uint8_t cmd, uint8_t slave_ad
     chunk_size -= chunk_i * 60;
     if (chunk_size > 60) chunk_size = 60;
     if (chunk_size <= 0) break;
-    if (chunk_size > 4)
+
+    uint64_t t_start = get_time_in_us();
+    while ((get_time_in_us() - t_start) < 100000)
     {
-      usleep(1500); // wait 1.5 ms
+      if (mcp2221_hidapi_i2c_state_check(handle) == 0x55)
+      { // data is available!
+        break;
+      }
     }
+
+
 
     mcp2221_hidapi_clear_reports(handle);
     handle->out_report_[0] = 0x40;
@@ -390,15 +446,13 @@ mcp2221_hidapi_i2c_read_repeated(struct MCP2221_t *handle, uint8_t slave_address
 }
 
 
-
 int16_t
 mcp2221_hidapi_i2c_slave_available(struct MCP2221_t *handle, uint8_t slave_address)
 {
   uint8_t data[2];
+
   mcp2221_hidapi_i2c_write(handle, slave_address, data, 0);
-  mcp2221_hidapi_i2c_test_lines(handle);
-  mcp2221_hidapi_i2c_set_frequency(handle, handle->i2c_frequency_hz_);
-  if (handle->in_report_[3] == 0x21)
+  if (mcp2221_hidapi_i2c_state_check(handle) != 0x00)
   {
     mcp2221_hidapi_i2c_cancel(handle);
     return -1; // not available

@@ -32,6 +32,9 @@ all: test $(STATIC_LIB_FILE) $(SHARED_LIB_FILE)
 test.o: test.c
 	gcc -c -Wall -Wextra -Wstrict-prototypes -Wunused-result -O3 -std=c99 -fmessage-length=0 -fPIC -Ilibs $^ -o $@
 
+reset.o: reset.c
+	gcc -c -Wall -Wextra -Wstrict-prototypes -Wunused-result -O3 -std=c99 -fmessage-length=0 -fPIC -Ilibs $^ -o $@
+
 mcp2221_hidapi.o: mcp2221_hidapi.c
 	gcc -c -Wall -Wextra -Wstrict-prototypes -Wunused-result -O3 -std=c99 -fmessage-length=0 -fPIC -Ilibs $^ -o $@
 
@@ -48,6 +51,10 @@ $(STATIC_LIB_FILE): mcp2221_hidapi.o
 
 
 test: test.o mcp2221_hidapi.o
+	gcc -o $@ $^ $(DEP_LIBS) $(DEP_LIB_PATH)
+	@cp -v libs/windows/hidapi.dll .
+
+reset: reset.o mcp2221_hidapi.o
 	gcc -o $@ $^ $(DEP_LIBS) $(DEP_LIB_PATH)
 	@cp -v libs/windows/hidapi.dll .
 
