@@ -3,7 +3,6 @@
 
 #define _DEFAULT_SOURCE
 
-#include "hidapi/hidapi.h"
 #include <stdint.h>
 
 struct MCP2221_t
@@ -12,7 +11,7 @@ struct MCP2221_t
   uint8_t out_report_buffer_[65];
   uint8_t use_pec_;
   uint32_t i2c_frequency_hz_;
-  hid_device* hid_;
+  void* hid_;  /* opaque pointer to hid_device* */
   uint8_t *out_report_;
 };
 
