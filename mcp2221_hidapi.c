@@ -6,6 +6,7 @@
 
 #include <sys/time.h>
 
+#include "hidapi/hidapi.h"
 
 static uint64_t
 get_time_in_us(void)
@@ -90,7 +91,7 @@ mcp2221_hidapi_init_(int16_t index, const char *path,  int vid, int pid)
     {
       if (i == index)
       {
-        handle->hid_ = hid_open_path(cur_dev->path);
+        handle->hid_ = (void*)hid_open_path(cur_dev->path);
         hid_free_enumeration(all_devices);
 
         if (handle->hid_ == NULL)
@@ -123,7 +124,7 @@ mcp2221_hidapi_init_(int16_t index, const char *path,  int vid, int pid)
   {
     if (!strcmp(cur_dev->path, path))
     {
-      handle->hid_ = hid_open_path(cur_dev->path);
+      handle->hid_ = (void*)hid_open_path(cur_dev->path);
       hid_free_enumeration(all_devices);
 
       if (handle->hid_ == NULL)
@@ -600,7 +601,7 @@ mcp2221_hidapi_clear_reports(struct MCP2221_t *handle)
 int16_t
 mcp2221_hidapi_sent_report(struct MCP2221_t *handle)
 {
-  int len = hid_write(handle->hid_, handle->out_report_buffer_, 65);
+  int len = hid_write((hid_device*)handle->hid_, handle->out_report_buffer_, 65);
   if (len != 65)
   {
     printf("%s: ERROR, sending result\n", __func__);
@@ -613,7 +614,7 @@ mcp2221_hidapi_sent_report(struct MCP2221_t *handle)
 int16_t
 mcp2221_hidapi_receive_report(struct MCP2221_t *handle)
 {
-  int len = hid_read(handle->hid_, handle->in_report_, 64);
+  int len = hid_read((hid_device*)handle->hid_, handle->in_report_, 64);
   if (len != 64)
   {
     printf("%s: ERROR, reading result\n", __func__);
